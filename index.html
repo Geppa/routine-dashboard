@@ -28,7 +28,7 @@
   .grid{display:grid; gap:8px}
   .timeline{position:relative; height:18px; background:#1d2240; border-radius:999px; overflow:hidden}
   .timeline .fill{position:absolute; left:0; top:0; bottom:0; background:linear-gradient(90deg,#6ea8fe,#9a7bff); width:0%}
-  .block{display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border:1px solid #2a2f4d; border-radius:12px}
+  .block{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; border:1px solid #2a2f4d; border-radius:12px}
   .block.active{border-color:#6ea8fe; background:rgba(110,168,254,.07)}
   .block .when{font-weight:600}
   .tag{font-size:12px; color:#b9c2ff}
@@ -59,9 +59,10 @@
       <div id="blocks" class="grid" style="margin-top:10px"></div>
       <div class="flex" style="margin-top:8px">
         <button class="btn" id="markDoneBtn">지금 블록 완료</button>
-        <button class="btn ghost" id="exportCSV">기록 CSV 내보내기</button>
+        <button class="btn ghost" id="exportCSV">기록 CSV</button>
+        <button class="btn ghost" id="downloadICS">주간 .ics</button>
       </div>
-      <div class="tiny muted" style="margin-top:6px">완료 시각이 자동 기록됩니다. 완료 취소는 기록 탭에서 가능합니다.</div>
+      <div class="tiny muted" style="margin-top:6px">완료 시각이 자동 기록됩니다. 각 블록 오른쪽의 📅 버튼으로 Google Calendar에 바로 추가할 수 있어요.</div>
     </section>
 
     <section class="card">
@@ -111,10 +112,11 @@ const dayBlocks = [
   {label:"취침", start:"23:00", end:"23:59", key:"sleep"}
 ];
 
+// Updated workouts (스쿼트 추가)
 const templates = {
-  1:{title:"월 — 푸시(고중량)", items:["벤치프레스 4×6","오버헤드 프레스 3×6~8","인클라인 덤벨프레스 3×8~10","딥스 3×6~8","오버헤드 트라이셉스 익스텐션 3×10"]},
-  2:{title:"화 — 풀(고중량)", items:["루마니안 데드리프트 4×5~6","턱걸이(가중) 4×6~8","바벨/덤벨 로우 3×8~10","페이스풀 3×12","해머컬 3×10"]},
-  4:{title:"목 — 푸시(대사성)", items:["인클라인 벤치프레스 4×8~10 (드롭세트)","덤벨 숄더프레스 3×10~12 (마이오레프)","푸시업 3×12~15","케이블 플라이 3×15","로프 푸시다운 3×12~15"]},
+  1:{title:"월 — 푸시(고중량)", items:["백 스쿼트 4×5 (RPE 8~9)","벤치프레스 4×6","오버헤드 프레스 3×6~8","인클라인 덤벨프레스 3×8~10","딥스 2~3×6~8","오버헤드 트라이셉스 익스텐션 2×10"]},
+  2:{title:"화 — 풀(고중량)", items:["루마니안 데드리프트 3~4×5~6","턱걸이(가중) 4×6~8","바벨/덤벨 로우 3×8~10","페이스풀 3×12","해머컬 3×10"]},
+  4:{title:"목 — 푸시(대사성)", items:["프런트/고블릿 스쿼트 3×10 (RPE 7)","인클라인 벤치프레스 3~4×8~10 (드롭세트)","덤벨 숄더프레스 3×10~12 (마이오레프)","푸시업 3×12~15","케이블 플라이 3×15","로프 푸시다운 2~3×12~15"]},
   5:{title:"금 — 풀(대사성)", items:["RDL(중량↓) 3×10","풀다운 3×12~15","인버티드 로우 3×12","페이스풀 3×15","인클라인 덤벨컬 3×12~15"]},
   6:{title:"토 — 회복 유산소", items:["빠른 걷기/자전거/하이킹 30~40분","스트레칭 10분"]},
   0:{title:"일 — 휴식", items:["가벼운 산책 20분","수면 리듬 유지"]},
@@ -135,6 +137,21 @@ function parseTime(hm){
   const d=new Date(); d.setHours(h, m, 0, 0); return d;
 }
 function pctOf(a,b,c){ return Math.max(0, Math.min(100, ((a-b)/(c-b))*100 )); }
+
+// ===== Google Calendar helper =====
+function openGCal(title, startDate, endDate, details=""){
+  // dates format: YYYYMMDDTHHMMSS/YYYYMMDDTHHMMSS (local time)
+  const pad=n=>String(n).padStart(2,'0');
+  const fmt=(d)=>`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+  const url = new URL("https://calendar.google.com/calendar/render");
+  url.searchParams.set("action","TEMPLATE");
+  url.searchParams.set("text", title);
+  url.searchParams.set("dates", `${fmt(startDate)}/${fmt(endDate)}`);
+  if(details) url.searchParams.set("details", details);
+  url.searchParams.set("sf","true");
+  url.searchParams.set("output","xml");
+  window.open(url.toString(), "_blank");
+}
 
 // ===== Render blocks =====
 function renderBlocks(){
@@ -166,9 +183,12 @@ function renderBlocks(){
         <div class="when">${b.start}–${b.end} <span class="tag">${b.label}</span></div>
         <div class="tiny ${done?'success':'muted'}">${done?'완료됨':'미완료'}</div>
       </div>
-      <button class="btn ${done?'secondary':'ghost'}" data-key="${b.key}">${done?'완료 취소':'완료'}</button>
+      <div class="flex">
+        <button class="btn ghost" data-addgcal="${b.key}">📅</button>
+        <button class="btn ${done?'secondary':'ghost'}" data-key="${b.key}">${done?'완료 취소':'완료'}</button>
+      </div>
     `;
-    div.querySelector("button").onclick = ()=>{
+    div.querySelector("[data-key]").onclick = ()=>{
       const data = store.load();
       const tkey = todayKey();
       if(!data.blocks[tkey]) data.blocks[tkey] = {};
@@ -178,6 +198,10 @@ function renderBlocks(){
         data.blocks[tkey][b.key] = new Date().toISOString();
       }
       store.save(data); renderBlocks(); renderHistory();
+    };
+    div.querySelector("[data-addgcal]").onclick = ()=>{
+      const start = parseTime(b.start), end = parseTime(b.end);
+      openGCal(b.label, start, end, "루틴 대시보드에서 추가됨");
     };
     container.appendChild(div);
   });
@@ -326,6 +350,34 @@ document.getElementById("exportCSV").onclick = ()=>{
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = "routine_logs.csv"; a.click();
+  URL.revokeObjectURL(url);
+};
+
+// Export ICS (weekly recurring schedule)
+document.getElementById("downloadICS").onclick = ()=>{
+  const pad=n=>String(n).padStart(2,'0');
+  const dt=(d)=>`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+  const t=(hm)=>hm.replace(":","")+"00";
+  const today=new Date();
+  const weekday=today.getDay();
+  // Find Monday of this week to anchor BYDAY rules (not strictly needed for weekly rules)
+  const monday = new Date(today); monday.setDate(today.getDate() - ((weekday+6)%7));
+  let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Routine Dashboard//KR//\r\n";
+  dayBlocks.forEach(b=>{
+    const s=parseTime(b.start), e=parseTime(b.end);
+    const uid = `${b.key}-${Date.now()}@routine`;
+    ics += "BEGIN:VEVENT\r\n";
+    ics += `UID:${uid}\r\n`;
+    ics += `SUMMARY:${b.label}\r\n`;
+    ics += `DTSTART:${dt(today)}T${t(b.start)}\r\n`;
+    ics += `DTEND:${dt(today)}T${t(b.end)}\r\n`;
+    ics += "RRULE:FREQ=WEEKLY\r\n";
+    ics += "END:VEVENT\r\n";
+  });
+  ics += "END:VCALENDAR\r\n";
+  const blob = new Blob([ics], {type:"text/calendar;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download="routine_weekly.ics"; a.click();
   URL.revokeObjectURL(url);
 };
 
