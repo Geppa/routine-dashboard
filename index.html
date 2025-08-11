@@ -1,20 +1,343 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>루틴 대시보드</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>일상 루틴 대시보드</title>
 <link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#0f1220">
+<style>
+  :root{
+    --bg:#0f1220; --card:#171a2b; --muted:#8a8fa3; --text:#eef1ff; --accent:#6ea8fe; --good:#30d158; --warn:#ff9f0a; --bad:#ff453a;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:16px; background:var(--bg); color:var(--text);
+    font-family: system-ui,-apple-system,Segoe UI,Roboto,Apple SD Gothic Neo,Noto Sans KR,Helvetica,Arial,sans-serif;
+  }
+  h1{font-size:22px; margin:0 0 8px}
+  .row{display:grid; gap:12px}
+  @media(min-width:900px){ .row{grid-template-columns:1.1fr .9fr} }
+  .card{background:var(--card); border-radius:14px; padding:14px; box-shadow:0 10px 30px rgba(0,0,0,.25)}
+  .muted{color:var(--muted)}
+  .pill{display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; margin-right:6px; background:#222740; color:#cbd1ff}
+  .btn{cursor:pointer; border:none; padding:10px 12px; border-radius:10px; background:var(--accent); color:#081028; font-weight:600}
+  .btn.secondary{background:#2a2f4d; color:#cfe0ff}
+  .btn.ghost{background:transparent; border:1px solid #394063; color:#cfe0ff}
+  .btn:disabled{opacity:.6; cursor:not-allowed}
+  .grid{display:grid; gap:8px}
+  .timeline{position:relative; height:18px; background:#1d2240; border-radius:999px; overflow:hidden}
+  .timeline .fill{position:absolute; left:0; top:0; bottom:0; background:linear-gradient(90deg,#6ea8fe,#9a7bff); width:0%}
+  .block{display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border:1px solid #2a2f4d; border-radius:12px}
+  .block.active{border-color:#6ea8fe; background:rgba(110,168,254,.07)}
+  .block .when{font-weight:600}
+  .tag{font-size:12px; color:#b9c2ff}
+  .flex{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .section-title{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px}
+  input[type="number"], input[type="text"], select{
+    background:#1d2240; color:#eaf0ff; border:1px solid #303761; border-radius:10px; padding:8px 10px; width:100%;
+  }
+  .table{width:100%; border-collapse:collapse; font-size:14px}
+  .table th,.table td{padding:8px; border-bottom:1px solid #2a2f4d; text-align:left}
+  .tiny{font-size:12px}
+  .success{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  .kbd{background:#2a2f4d; color:#cfe0ff; padding:2px 6px; border-radius:6px; font-size:12px}
+</style>
+</head>
+<body>
+  <h1>📆 일상 루틴 대시보드</h1>
+  <div class="row">
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <div class="muted tiny">현재 시간대</div>
+          <div id="nowLabel" style="font-size:18px; font-weight:700">-</div>
+        </div>
+        <div class="pill" id="nowTime">--:--</div>
+      </div>
+      <div class="timeline"><div class="fill" id="progressFill"></div></div>
+      <div id="blocks" class="grid" style="margin-top:10px"></div>
+      <div class="flex" style="margin-top:8px">
+        <button class="btn" id="markDoneBtn">지금 블록 완료</button>
+        <button class="btn ghost" id="exportCSV">기록 CSV 내보내기</button>
+      </div>
+      <div class="tiny muted" style="margin-top:6px">완료 시각이 자동 기록됩니다. 완료 취소는 기록 탭에서 가능합니다.</div>
+    </section>
+
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <div class="muted tiny">오늘의 운동</div>
+          <div id="todayWorkoutTitle" style="font-size:18px; font-weight:700">-</div>
+        </div>
+        <div class="pill" id="weekdayPill">-</div>
+      </div>
+      <div id="workoutList" class="grid"></div>
+      <div class="flex" style="margin-top:10px">
+        <button class="btn secondary" id="addSet">세트 추가</button>
+        <button class="btn ghost" id="copyLast">지난 기록 불러오기</button>
+        <button class="btn ghost" id="startVoice">🎤 음성 로그</button>
+      </div>
+      <table class="table" style="margin-top:10px">
+        <thead><tr><th>운동</th><th>kg</th><th>reps</th><th>세트</th><th>시간</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+      <div class="tiny muted">음성 예시: “벤치 80 6”, “로우 60 10”. (지원 브라우저에서만)</div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:12px">
+    <div class="section-title">
+      <div style="font-weight:700">기록</div>
+      <div class="pill" id="todaySummary">-</div>
+    </div>
+    <div id="history" class="grid"></div>
+  </section>
+
 <script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js');
+// ===== Config =====
+const dayBlocks = [
+  {label:"기상·물·스트레칭", start:"07:00", end:"07:15", key:"wake"},
+  {label:"아침 운동 (웨이트+유산소)", start:"07:15", end:"08:45", key:"train"},
+  {label:"샤워·정리", start:"08:45", end:"09:30", key:"prep"},
+  {label:"첫 단백질/WPI + 영양제", start:"09:30", end:"09:40", key:"protein"},
+  {label:"Deep Work 1", start:"09:40", end:"11:30", key:"deep1"},
+  {label:"점심 (첫 식사)", start:"11:30", end:"12:00", key:"lunch"},
+  {label:"출근·업무", start:"12:30", end:"18:30", key:"work"},
+  {label:"저녁", start:"19:00", end:"19:30", key:"dinner"},
+  {label:"Deep Work 2", start:"19:30", end:"21:00", key:"deep2"},
+  {label:"산책·스트레칭", start:"21:00", end:"21:30", key:"walk"},
+  {label:"취침 준비(마그네슘·테아닌)", start:"22:30", end:"23:00", key:"prebed"},
+  {label:"취침", start:"23:00", end:"23:59", key:"sleep"}
+];
+
+const templates = {
+  1:{title:"월 — 푸시(고중량)", items:["벤치프레스 4×6","오버헤드 프레스 3×6~8","인클라인 덤벨프레스 3×8~10","딥스 3×6~8","오버헤드 트라이셉스 익스텐션 3×10"]},
+  2:{title:"화 — 풀(고중량)", items:["루마니안 데드리프트 4×5~6","턱걸이(가중) 4×6~8","바벨/덤벨 로우 3×8~10","페이스풀 3×12","해머컬 3×10"]},
+  4:{title:"목 — 푸시(대사성)", items:["인클라인 벤치프레스 4×8~10 (드롭세트)","덤벨 숄더프레스 3×10~12 (마이오레프)","푸시업 3×12~15","케이블 플라이 3×15","로프 푸시다운 3×12~15"]},
+  5:{title:"금 — 풀(대사성)", items:["RDL(중량↓) 3×10","풀다운 3×12~15","인버티드 로우 3×12","페이스풀 3×15","인클라인 덤벨컬 3×12~15"]},
+  6:{title:"토 — 회복 유산소", items:["빠른 걷기/자전거/하이킹 30~40분","스트레칭 10분"]},
+  0:{title:"일 — 휴식", items:["가벼운 산책 20분","수면 리듬 유지"]},
+  3:{title:"수 — 회복/자유", items:["스트레칭·산책 20분","컨디션에 따라 휴식"]}
+};
+
+// ===== Storage helpers =====
+const store = {
+  get k(){ return "routineLogs_v1"; },
+  load(){ return JSON.parse(localStorage.getItem(this.k) || '{"blocks":{},"workout":[],"history":[]}'); },
+  save(data){ localStorage.setItem(this.k, JSON.stringify(data)); }
+};
+
+function fmtHM(d){ return d.toTimeString().slice(0,5); }
+function todayKey(){ const d=new Date(); return d.toISOString().slice(0,10); }
+function parseTime(hm){
+  const [h,m]=hm.split(":").map(Number);
+  const d=new Date(); d.setHours(h, m, 0, 0); return d;
+}
+function pctOf(a,b,c){ return Math.max(0, Math.min(100, ((a-b)/(c-b))*100 )); }
+
+// ===== Render blocks =====
+function renderBlocks(){
+  const container = document.getElementById("blocks");
+  container.innerHTML = "";
+  const now = new Date();
+  document.getElementById("nowTime").textContent = fmtHM(now);
+
+  const dayStart = parseTime(dayBlocks[0].start).getTime();
+  const dayEnd   = parseTime(dayBlocks[dayBlocks.length-1].end).getTime();
+  const p = pctOf(now.getTime(), dayStart, dayEnd);
+  document.getElementById("progressFill").style.width = p + "%";
+
+  const data = store.load();
+  const tkey = todayKey();
+  if(!data.blocks[tkey]) data.blocks[tkey] = {};
+
+  let activeIndex=-1;
+  dayBlocks.forEach((b, idx)=>{
+    const s = parseTime(b.start), e = parseTime(b.end);
+    const active = now>=s && now<=e;
+    if(active) activeIndex = idx;
+    const done = !!data.blocks[tkey][b.key];
+
+    const div = document.createElement("div");
+    div.className = "block"+(active?" active":"");
+    div.innerHTML = `
+      <div>
+        <div class="when">${b.start}–${b.end} <span class="tag">${b.label}</span></div>
+        <div class="tiny ${done?'success':'muted'}">${done?'완료됨':'미완료'}</div>
+      </div>
+      <button class="btn ${done?'secondary':'ghost'}" data-key="${b.key}">${done?'완료 취소':'완료'}</button>
+    `;
+    div.querySelector("button").onclick = ()=>{
+      const data = store.load();
+      const tkey = todayKey();
+      if(!data.blocks[tkey]) data.blocks[tkey] = {};
+      if(data.blocks[tkey][b.key]){
+        delete data.blocks[tkey][b.key];
+      } else {
+        data.blocks[tkey][b.key] = new Date().toISOString();
+      }
+      store.save(data); renderBlocks(); renderHistory();
+    };
+    container.appendChild(div);
+  });
+
+  const nowLabel = activeIndex>=0 ? dayBlocks[activeIndex].label : "휴식/자유 시간";
+  document.getElementById("nowLabel").textContent = nowLabel;
+}
+
+// ===== Workout section =====
+function renderWorkout(){
+  const wd = new Date().getDay();
+  const t = templates[wd];
+  document.getElementById("weekdayPill").textContent = ["일","월","화","수","목","금","토"][wd];
+  document.getElementById("todayWorkoutTitle").textContent = t ? t.title : "오늘: 자유 / 회복";
+  const list = document.getElementById("workoutList");
+  list.innerHTML = "";
+  (t?.items||[]).forEach(txt=>{
+    const div=document.createElement("div");
+    div.className="block";
+    div.innerHTML = `<div>${txt}</div><button class="btn ghost" data-ex="${txt}">기록</button>`;
+    div.querySelector("button").onclick = ()=> quickAdd(txt);
+    list.appendChild(div);
+  });
+  const data = store.load();
+  const tb = document.getElementById("logBody");
+  tb.innerHTML="";
+  (data.workout||[]).filter(x=>x.date===todayKey()).forEach(e=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML = `<td>${e.name}</td><td>${e.kg||""}</td><td>${e.reps||""}</td><td>${e.sets||1}</td><td class="tiny muted">${e.time.slice(11,19)}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+function quickAdd(name){
+  const kg = prompt(`${name}\n무게(kg)? (빈칸 가능)`);
+  const reps = prompt(`${name}\n반복 수(reps)? (빈칸 가능)`);
+  addLog({name, kg:kg?Number(kg):"", reps:reps?Number(reps):"", sets:1});
+}
+
+function addLog(entry){
+  const data = store.load();
+  data.workout = data.workout||[];
+  data.workout.push({date:todayKey(), time:new Date().toISOString(), ...entry});
+  store.save(data);
+  renderWorkout(); renderHistory();
+}
+
+document.getElementById("addSet").onclick = ()=>{
+  const name = prompt("운동 이름? (예: 벤치프레스)");
+  if(!name) return;
+  const kg = prompt("무게(kg)?"); const reps = prompt("반복 수?");
+  addLog({name, kg:kg?Number(kg):"", reps:reps?Number(reps):"", sets:1});
+};
+
+document.getElementById("copyLast").onclick = ()=>{
+  const data = store.load();
+  const last = [...(data.workout||[])].reverse().find(x=>x.name);
+  if(!last){ alert("지난 기록이 없습니다."); return; }
+  addLog({name:last.name, kg:last.kg, reps:last.reps, sets:last.sets||1});
+};
+
+// Voice logging
+let recognizing=false, recog;
+document.getElementById("startVoice").onclick = ()=>{
+  if(!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)){
+    alert("이 브라우저는 음성 인식을 지원하지 않습니다."); return;
+  }
+  const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
+  recog = new SR(); recog.lang='ko-KR'; recog.interimResults=false; recog.maxAlternatives=1;
+  recog.onresult=(e)=>{
+    const s = e.results[0][0].transcript.trim();
+    const parts = s.split(/\s+/);
+    const name = parts[0]; const kg = Number(parts[1]); const reps = Number(parts[2]);
+    if(name && !isNaN(kg) && !isNaN(reps)){ addLog({name, kg, reps, sets:1}); }
+    else { alert("인식: "+s+"  (형식: '벤치 80 6')"); }
+  };
+  recog.onerror=(e)=>alert("음성 인식 오류: "+e.error);
+  recog.onend=()=> recognizing=false;
+  recognizing=true; recog.start();
+};
+
+// Auto-log via URL (for NFC/Shortcuts): ?add=벤치프레스&kg=80&reps=6
+(function(){
+  const params = new URLSearchParams(location.search);
+  if(params.has('add')){
+    const name = params.get('add');
+    const kg = Number(params.get('kg'));
+    const reps = Number(params.get('reps'));
+    addLog({name, kg: isNaN(kg)? "": kg, reps: isNaN(reps)? "": reps, sets:1});
+    history.replaceState({}, "", location.pathname);
+    alert(`자동 기록됨: ${name} ${kg||''}kg x ${reps||''}`);
+  }
+})();
+
+// Mark current block done
+document.getElementById("markDoneBtn").onclick = ()=>{
+  const now = new Date();
+  const active = dayBlocks.find(b=> now>=parseTime(b.start) && now<=parseTime(b.end) );
+  if(!active){ alert("현재 활성 블록이 없습니다."); return; }
+  const data = store.load();
+  const tkey = todayKey();
+  data.blocks[tkey] = data.blocks[tkey]||{};
+  data.blocks[tkey][active.key] = new Date().toISOString();
+  store.save(data);
+  renderBlocks(); renderHistory();
+};
+
+// History
+function renderHistory(){
+  const data = store.load();
+  const tkey = todayKey();
+  const doneCount = Object.values(data.blocks[tkey]||{}).length;
+  document.getElementById("todaySummary").textContent = `오늘 완료 ${doneCount}/${dayBlocks.length}`;
+
+  const container=document.getElementById("history");
+  container.innerHTML="";
+  const recent = (data.workout||[]).slice(-8).reverse();
+  recent.forEach(e=>{
+    const div=document.createElement("div");
+    div.className="block";
+    div.innerHTML = `<div><div>${e.name} ${e.kg||''}kg × ${e.reps||''}</div>
+      <div class="tiny muted">${e.date} ${e.time.slice(11,19)}</div></div>
+      <button class="btn ghost">삭제</button>`;
+    div.querySelector("button").onclick=()=>{
+      const d = store.load();
+      d.workout = d.workout.filter(x=> !(x.date===e.date && x.time===e.time) );
+      store.save(d); renderWorkout(); renderHistory();
+    }
+    container.appendChild(div);
+  });
+}
+
+// Export CSV
+document.getElementById("exportCSV").onclick = ()=>{
+  const data = store.load();
+  let csv = "type,date,time,name,kg,reps,sets,key\n";
+  (data.workout||[]).forEach(e=>{
+    csv += `workout,${e.date},${e.time},${e.name||""},${e.kg||""},${e.reps||""},${e.sets||1},\n`;
+  });
+  Object.entries(data.blocks||{}).forEach(([d,keys])=>{
+    Object.entries(keys).forEach(([k,t])=>{
+      csv += `block,${d},${t},,,,"",${k}\n`;
+    });
+  });
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "routine_logs.csv"; a.click();
+  URL.revokeObjectURL(url);
+};
+
+function renderAll(){ renderBlocks(); renderWorkout(); renderHistory(); }
+renderAll(); setInterval(()=>renderBlocks(), 30000);
+
+// Register SW
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
   });
 }
 </script>
-</head>
-<body>
-<h1>루틴 대시보드</h1>
-<p>여기에 대시보드 UI와 기능을 추가하세요.</p>
 </body>
 </html>
